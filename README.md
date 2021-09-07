@@ -19,11 +19,12 @@ The following commands are the default back commands that this plugin will check
 You can add more commands in the config
 
 Usage
-Create a region with WorldGuard. More info in the WorldGuard documentation.
-Run the command: "/rg flags" in the region you want to be affected.
-Click the arrows in chat to get to one of the pages. It should look something like this:
-Click allow to stop players from using /back to get into that region
-If you are looking how to deny back into untrusted claims, it is enabled by default. You can turn it off in the config.
+* Create a region with WorldGuard. More info in the WorldGuard documentation.
+* Run the command: "/rg flags" in the region you want to be affected.
+* Click the arrows in chat to get to one of the pages. It should look something like ![this](https://i.imgur.com/1yU8QXm.png)
+* 
+* Click allow to stop players from using /back to get into that region
+* If you are looking how to deny back into untrusted claims, it is enabled by default. You can turn it off in the config.
 
 Reload Command
 /denyback reload - requires denyback.admin to use
