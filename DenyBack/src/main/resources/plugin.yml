@@ -1,0 +1,17 @@
+name: DenyBack
+version: ${project.version}
+main: me.jadenp.denyback.Denyback
+api-version: 1.17
+depend: [ WorldGuard ]
+softdepend:
+  - GriefPrevention
+authors: [ Not_Jaden ]
+description: Option to disable /back into a WorldGuard region or GriefPrevention Claims
+commands:
+  denyback:
+    usage: /denyback
+    description: used to reload the config
+permissions:
+  denyback.admin:
+    description: to be able to reload the config
+    default: op

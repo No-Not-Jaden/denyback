@@ -1,0 +1,12 @@
+# what commands to deny
+deny-commands:
+  - '/back'
+  - '/cmi back'
+  - '/eback'
+  - '/cback'
+  - '/cmi cback'
+  - '/return'
+  - '/ereturn'
+
+# if GriefPrevention is enabled, true = /back will be denied if a player's last known location is inside a claim they are not trusted in
+deny-untrusted-claims: true
