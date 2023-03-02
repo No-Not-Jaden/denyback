@@ -1,5 +1,5 @@
 name: DenyBack
-version: 1.2
+version: 1.4.3
 main: me.jadenp.denyback.Denyback
 api-version: 1.17
 depend: [ WorldGuard ]
@@ -11,8 +11,6 @@ commands:
   denyback:
     usage: /denyback
     description: used to reload the config
-    aliases:
-      - worldguarddenyback
 permissions:
   denyback.admin:
     description: to be able to reload the config

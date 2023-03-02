@@ -8,5 +8,8 @@ deny-commands:
   - '/return'
   - '/ereturn'
 
+# the permission that allows players to /back to their death location
+back-on-death-permission: 'essentials.back.ondeath' # cmi.command.back.ondeath for cmi
+
 # if GriefPrevention is enabled, true = /back will be denied if a player's last known location is inside a claim they are not trusted in
 deny-untrusted-claims: true
