@@ -92,7 +92,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             lastLoc.put(uuid, loc);
         }
 
-        this.loadConfig();
+        loadConfig();
         new BukkitRunnable() {
             public void run() {
                 save();
