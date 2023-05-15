@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
@@ -41,8 +43,11 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+
+import static net.md_5.bungee.api.ChatColor.COLOR_CHAR;
 
 public final class Denyback extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     public static StateFlag MY_CUSTOM_FLAG;
@@ -53,6 +58,11 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     public boolean griefPreventionEnabled;
     public boolean denyBackClaims;
     public String deathPermission;
+    public String denyMessage;
+    public boolean useGriefPreventionMessage;
+    public boolean denyNonMembers;
+    public boolean debug = false;
+    public int minBackDistance;
     public String prefix = ChatColor.GRAY + "[" + ChatColor.RED + "DenyBack" + ChatColor.GRAY + "] " + ChatColor.DARK_GRAY + "> ";
 
     public void onLoad() {
@@ -104,13 +114,53 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     public void loadConfig() {
         this.reloadConfig();
 
-        if (!this.getConfig().isSet("back-on-death-permission")) {
-            this.getConfig().set("back-on-death-permission", "essentials.back.ondeath");
-        }
+        if (!getConfig().isSet("back-on-death-permission"))
+            getConfig().set("back-on-death-permission", "essentials.back.ondeath");
+        if (!getConfig().isSet("deny-message"))
+            getConfig().set("deny-message", "&c&lHey! &7Sorry, but you can't return to there.");
+        if (!getConfig().isSet("use-grief-prevention-message"))
+            getConfig().set("use-grief-prevention-message", true);
+        if (!getConfig().isSet("deny-nonmembers"))
+            getConfig().set("deny-nonmembers", false);
+
+        saveConfig();
+
         aliases.clear();
-        aliases = this.getConfig().getStringList("deny-commands");
-        denyBackClaims = this.getConfig().getBoolean("deny-untrusted-claims");
-        deathPermission = this.getConfig().getString("back-on-death-permission");
+        aliases = getConfig().getStringList("deny-commands");
+        denyBackClaims = getConfig().getBoolean("deny-untrusted-claims");
+        deathPermission = getConfig().getString("back-on-death-permission");
+        denyMessage = color(getConfig().getString("deny-message"));
+        useGriefPreventionMessage = getConfig().getBoolean("use-grief-prevention-message");
+        denyNonMembers = getConfig().getBoolean("deny-nonmembers");
+
+        Plugin plugin = Bukkit.getPluginManager().getPlugin("CMI");
+        if (plugin != null){
+            minBackDistance = plugin.getConfig().getInt("Optimizations.Teleport.BackMinDistance");
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] CMI registered, BackMinDistance: " + minBackDistance);
+        } else {
+            minBackDistance = 0;
+        }
+    }
+
+    public static String color(String str) {
+        str = net.md_5.bungee.api.ChatColor.translateAlternateColorCodes('&', str);
+        return translateHexColorCodes("&#", "", str);
+    }
+
+    public static String translateHexColorCodes(String startTag, String endTag, String message) {
+        final Pattern hexPattern = Pattern.compile(startTag + "([A-Fa-f0-9]{6})" + endTag);
+        Matcher matcher = hexPattern.matcher(message);
+        StringBuffer buffer = new StringBuffer(message.length() + 4 * 8);
+        while (matcher.find()) {
+            String group = matcher.group(1);
+            matcher.appendReplacement(buffer, COLOR_CHAR + "x"
+                    + COLOR_CHAR + group.charAt(0) + COLOR_CHAR + group.charAt(1)
+                    + COLOR_CHAR + group.charAt(2) + COLOR_CHAR + group.charAt(3)
+                    + COLOR_CHAR + group.charAt(4) + COLOR_CHAR + group.charAt(5)
+            );
+        }
+        return matcher.appendTail(buffer).toString();
     }
 
     public void onDisable() {
@@ -137,31 +187,38 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
     @EventHandler
     public void onCommandSend(PlayerCommandPreprocessEvent event) {
-        if (!event.getPlayer().hasPermission("denyback.admin")) {
+
             String message = event.getMessage();
             if (message.charAt(message.length() - 1) == ' ') {
                 message = message.substring(0, message.length() - 1);
             }
 
             if (aliases.contains(message.toLowerCase(Locale.ROOT))) {
-                Player p = event.getPlayer();
-                if (lastLoc.containsKey(p.getUniqueId().toString())) {
-                    Location testLocation = lastLoc.get(p.getUniqueId().toString());
-                    if (getBackFlag(p, testLocation)) {
-                        event.setCancelled(true);
-                        p.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Hey! " + ChatColor.GRAY + "Sorry, but you can't return to there.");
-                        return;
-                    }
-
-                    if (griefPreventionEnabled && denyBackClaims) {
-                        if (!playerTrusted(p, testLocation)) {
-                            p.sendMessage(ChatColor.RED + "" + ChatColor.BOLD + "Hey! " + ChatColor.GRAY + "Sorry, but you can't return to there.");
+                // back command
+                if (!event.getPlayer().hasPermission("denyback.admin")) {
+                    Player p = event.getPlayer();
+                    if (lastLoc.containsKey(p.getUniqueId().toString())) {
+                        Location testLocation = lastLoc.get(p.getUniqueId().toString());
+                        if (getBackFlag(p, testLocation)) {
                             event.setCancelled(true);
+                            p.sendMessage(denyMessage);
+                            return;
+                        }
+
+                        if (griefPreventionEnabled && denyBackClaims) {
+                            if (!playerTrusted(p, testLocation)) {
+                                if (!useGriefPreventionMessage)
+                                    p.sendMessage(denyMessage);
+                                event.setCancelled(true);
+                            }
                         }
                     }
+                } else {
+                    if (debug)
+                        Bukkit.getLogger().info("[DenyBack] " + event.getPlayer().getName() + " has admin permissions.");
                 }
             }
-        }
+
 
     }
 
@@ -185,7 +242,11 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                     if (args[0].equalsIgnoreCase("reload")) {
                         this.loadConfig();
                         sender.sendMessage(prefix + ChatColor.GREEN + "Reloaded DenyBack " + this.getDescription().getVersion() + ".");
-                    } else {
+                    } else if (args[0].equalsIgnoreCase("debug")){
+                        debug = !debug;
+                        sender.sendMessage(prefix + ChatColor.YELLOW + "Debug mode set to " + debug + ".");
+                    }
+                    else {
                         sender.sendMessage(prefix + ChatColor.GOLD + "Unknown Command!");
                     }
                 } else {
@@ -201,24 +262,30 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
     @EventHandler
     public void onTeleport(PlayerTeleportEvent event) {
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Player teleported: " + event.getPlayer().getName() + " Reason: " + event.getCause() + " Canceled: " + event.isCancelled());
         if ((event.getCause() == TeleportCause.COMMAND || event.getCause() == TeleportCause.PLUGIN) && !event.isCancelled()) {
-            if (lastLoc.containsKey(event.getPlayer().getUniqueId().toString())) {
-                lastLoc.replace(event.getPlayer().getUniqueId().toString(), event.getFrom());
-            } else {
+            int distance = event.getTo() != null && event.getTo().getWorld() != null && event.getFrom().getWorld() != null && event.getTo().getWorld().equals(event.getFrom().getWorld()) ? (int) event.getTo().distance(event.getFrom()) : 9999;
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Teleport Distance: " + distance + "m");
+            if (distance  > minBackDistance){
                 lastLoc.put(event.getPlayer().getUniqueId().toString(), event.getFrom());
+                if (debug)
+                    Bukkit.getLogger().info("[DenyBack] Teleport registered!");
             }
+
         }
 
     }
 
     @EventHandler
     public void onDeath(PlayerDeathEvent event) {
-        if (event.getEntity().hasPermission(deathPermission)) {
-            if (lastLoc.containsKey(event.getEntity().getUniqueId().toString())) {
-                lastLoc.replace(event.getEntity().getUniqueId().toString(), event.getEntity().getLocation());
-            } else {
-                lastLoc.put(event.getEntity().getUniqueId().toString(), event.getEntity().getLocation());
-            }
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Player died: " + event.getEntity().getName() + " Has death permission: " + (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()));
+        if (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()) {
+            lastLoc.put(event.getEntity().getUniqueId().toString(), event.getEntity().getLocation());
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Death registered!");
         }
     }
 
@@ -227,19 +294,48 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         RegionQuery query = container.createQuery();
         ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(location));
         LocalPlayer localPlayer = WorldGuardPlugin.inst().wrapPlayer(p);
-        return !WorldGuard.getInstance().getPlatform().getSessionManager().hasBypass(localPlayer, BukkitAdapter.adapt(p.getWorld())) && set.testState(localPlayer, MY_CUSTOM_FLAG);
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Checking deny-back flag for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
+
+        if (WorldGuard.getInstance().getPlatform().getSessionManager().hasBypass(localPlayer, BukkitAdapter.adapt(p.getWorld()))){
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Player bypasses DenyBack flag.");
+            return false;
+        }
+        if (set.testState(localPlayer, MY_CUSTOM_FLAG)) {
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Player cannot return.");
+            return true;
+        }
+        if (denyNonMembers) {
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Member status: " + set.isMemberOfAll(localPlayer) + ".");
+            return !set.isMemberOfAll(localPlayer);
+        }
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Player has been allowed.");
+        return false;
     }
 
     public boolean playerTrusted(Player p, Location location) {
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Checking GriefPrevention Claim for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
         Claim claim = GriefPrevention.instance.dataStore.getClaimAt(location, false, null);
         if (claim == null) {
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] No claim found.");
             return true;
         }
         String perms = claim.allowAccess(p);
         if (perms == null) {
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] Player is trusted.");
             return true;
         }
-        p.sendMessage(ChatColor.RED + perms);
+        if (useGriefPreventionMessage)
+            p.sendMessage(ChatColor.RED + perms);
+        if (debug)
+            Bukkit.getLogger().info("[DenyBack] Player is not trusted.");
         return false;
 
 

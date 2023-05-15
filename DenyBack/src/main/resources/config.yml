@@ -1,3 +1,5 @@
+# /rg flag -w "{world_name}" -h 6 {region_name} deny-back ALLOW
+
 # what commands to deny
 deny-commands:
   - '/back'
@@ -13,3 +15,11 @@ back-on-death-permission: 'essentials.back.ondeath' # cmi.command.back.ondeath f
 
 # if GriefPrevention is enabled, true = /back will be denied if a player's last known location is inside a claim they are not trusted in
 deny-untrusted-claims: true
+
+# set this true to deny back to all non-members of a region - setting the region flag overrides this
+deny-nonmembers: false
+
+# message sent to player if they are denied returning to a location
+deny-message: '&c&lHey! &7Sorry, but you can''t return to there.'
+# this will use GriefPrevention's message when a player tries to return to a claim
+use-grief-prevention-message: true
