@@ -16,25 +16,15 @@ import com.sk89q.worldguard.protection.flags.registry.FlagConflictException;
 import com.sk89q.worldguard.protection.flags.registry.FlagRegistry;
 import com.sk89q.worldguard.protection.regions.RegionContainer;
 import com.sk89q.worldguard.protection.regions.RegionQuery;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 import me.ryanhamshire.GriefPrevention.Claim;
 import me.ryanhamshire.GriefPrevention.GriefPrevention;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.command.*;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -47,13 +37,20 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import javax.annotation.Nonnull;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import static net.md_5.bungee.api.ChatColor.COLOR_CHAR;
 
 public final class Denyback extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
     public static StateFlag MY_CUSTOM_FLAG;
     public List<String> aliases = new ArrayList<>();
     public File lastLocations = new File(this.getDataFolder() + File.separator + "locations.yml");
-    ;
+
     public Map<String, Location> lastLoc = new HashMap<>();
     public boolean griefPreventionEnabled;
     public boolean denyBackClaims;
@@ -223,7 +220,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+    public List<String> onTabComplete(@Nonnull CommandSender sender, Command command, @Nonnull String alias, @Nonnull String[] args) {
         List<String> list = new ArrayList<>();
         if (command.getName().equalsIgnoreCase("denyback")) {
             if (sender.hasPermission("denyback.admin")) {
@@ -235,7 +232,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         return list;
     }
 
-    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+    public boolean onCommand(@Nonnull CommandSender sender, Command command, @Nonnull String label, @Nonnull String[] args) {
         if (command.getName().equalsIgnoreCase("denyback")) {
             if (sender.hasPermission("denyback.admin")) {
                 if (args.length == 1) {
@@ -294,6 +291,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         RegionQuery query = container.createQuery();
         ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(location));
         LocalPlayer localPlayer = WorldGuardPlugin.inst().wrapPlayer(p);
+        assert location.getWorld() != null;
         if (debug)
             Bukkit.getLogger().info("[DenyBack] Checking deny-back flag for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
 
@@ -318,6 +316,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     }
 
     public boolean playerTrusted(Player p, Location location) {
+        assert location.getWorld() != null;
         if (debug)
             Bukkit.getLogger().info("[DenyBack] Checking GriefPrevention Claim for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
         Claim claim = GriefPrevention.instance.dataStore.getClaimAt(location, false, null);
