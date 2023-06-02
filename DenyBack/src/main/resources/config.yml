@@ -23,3 +23,11 @@ deny-nonmembers: false
 deny-message: '&c&lHey! &7Sorry, but you can''t return to there.'
 # this will use GriefPrevention's message when a player tries to return to a claim
 use-grief-prevention-message: true
+
+back-command:
+  # register a back command for DenyBack
+  register: false
+  # send player back to the last location that they are allowed to go
+  use-last-available-location: true
+  # how many seconds before player will be teleported
+  teleport-delay: 0

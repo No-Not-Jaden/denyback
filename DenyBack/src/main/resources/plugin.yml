@@ -15,3 +15,9 @@ permissions:
   denyback.admin:
     description: to be able to reload the config
     default: op
+  denyback.back:
+    description: use /back if enabled
+    default: false
+  denyback.back.ondeath:
+    description: use /back on death
+    default: false
