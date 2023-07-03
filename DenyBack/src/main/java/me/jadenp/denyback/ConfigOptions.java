@@ -19,9 +19,11 @@ public class ConfigOptions {
     public static String denyMessage;
     public static boolean useGriefPreventionMessage;
     public static boolean denyNonMembers;
+    public static String backMessage;
 
     public static void loadConfig() {
         Denyback db = Denyback.getInstance();
+        db.reloadConfig();
 
         if (!db.getConfig().isSet("back-on-death-permission"))
             db.getConfig().set("back-on-death-permission", "essentials.back.ondeath");
@@ -37,6 +39,8 @@ public class ConfigOptions {
             db.getConfig().set("back-command.use-last-available-location", true);
         if (!db.getConfig().isSet("back-command.teleport-delay"))
             db.getConfig().set("back-command.teleport-delay", 0);
+        if (!db.getConfig().isSet("back-command.message"))
+            db.getConfig().set("back-command.message", "&6Returning to previous location.");
 
         db.saveConfig();
 
@@ -50,6 +54,7 @@ public class ConfigOptions {
         registerCommand = db.getConfig().getBoolean("back-command.register");
         lastAvailableLocation = db.getConfig().getBoolean("back-command.use-last-available-location");
         teleportDelay = db.getConfig().getInt("back-command.teleport-delay");
+        backMessage = color(db.getConfig().getString("back-command.message"));
 
         Plugin plugin = Bukkit.getPluginManager().getPlugin("CMI");
         if (plugin != null) {

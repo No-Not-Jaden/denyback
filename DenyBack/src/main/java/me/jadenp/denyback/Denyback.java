@@ -107,8 +107,10 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         }
 
         ConfigOptions.loadConfig();
-        //if (registerCommand)
-        //Objects.requireNonNull(getCommand("back")).setExecutor(this);
+
+        if (registerCommand)
+            Objects.requireNonNull(getCommand("back")).setExecutor(this);
+
         new BukkitRunnable() {
             public void run() {
                 save();
@@ -177,11 +179,13 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                     Bukkit.getLogger().info("[DenyBack] " + event.getPlayer().getName() + " has admin permissions.");
             }
             if (registerCommand && lastLoc.containsKey(p.getUniqueId().toString()) && p.hasPermission("denyback.back")) {
+                p.sendMessage(backMessage);
+                event.setCancelled(true);
                 if (teleportDelay > 0) {
                     if (debug)
                         Bukkit.getLogger().info("[DenyBack] Initializing delayed teleport...");
                     new BukkitRunnable() {
-                        final int movingChars = 5;
+                        final int movingChars = 3;
                         StringBuilder displayMessage;
                         int timer = teleportDelay;
                         final Location teleportLocation = lastLoc.get(p.getUniqueId().toString());
@@ -191,6 +195,8 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                         public void run() {
                             if (!p.isOnline() || !compareLocations(startLocation, p.getLocation(), 0.5)) {
                                 this.cancel();
+                                if (p.isOnline())
+                                    p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.GRAY + "(" + ChatColor.RED + "✖" + ChatColor.GRAY + ")"));
                                 if (debug)
                                     Bukkit.getLogger().info("[DenyBack] Delayed teleportation canceled for " + p.getName() + ".");
                                 return;
@@ -222,6 +228,12 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                         Bukkit.getLogger().info("[DenyBack] Teleporting player...");
                     p.teleport(lastLoc.get(p.getUniqueId().toString()));
                 }
+            } else {
+                if (debug) {
+                    Bukkit.getLogger().info("[DenyBack] Command registered: " + registerCommand);
+                    Bukkit.getLogger().info("[DenyBack] Has back location: " + lastLoc.containsKey(p.getUniqueId().toString()));
+                    Bukkit.getLogger().info("[DenyBack] Has denyback.back permission: " + p.hasPermission("denyback.back"));
+                }
             }
 
 
@@ -248,12 +260,6 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                 }
             }
         }
-        if (registerCommand && args.length == 0 && sender.hasPermission("denyback.back"))
-            for (String cmd : aliases) {
-                if (cmd.contains(" "))
-                    cmd = cmd.substring(0, cmd.indexOf(" "));
-                list.add(cmd.substring(1));
-            }
         return list;
     }
 
@@ -290,7 +296,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             if (debug)
                 Bukkit.getLogger().info("[DenyBack] Teleport Distance: " + distance + "m");
             if (distance > minBackDistance) {
-                if (!registerCommand || (lastAvailableLocation && !getBackFlag(event.getPlayer(), event.getFrom()) && playerTrusted(event.getPlayer(), event.getFrom()))) {
+                if (!registerCommand || !lastAvailableLocation || !getBackFlag(event.getPlayer(), event.getFrom()) && playerTrusted(event.getPlayer(), event.getFrom())) {
                     lastLoc.put(event.getPlayer().getUniqueId().toString(), event.getFrom());
                     if (debug)
                         Bukkit.getLogger().info("[DenyBack] Teleport registered!");
@@ -309,7 +315,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         if (debug)
             Bukkit.getLogger().info("[DenyBack] Player died: " + event.getEntity().getName() + " Has death permission: " + (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()));
         if (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()) {
-            if (!registerCommand || (lastAvailableLocation && !getBackFlag(event.getEntity(), event.getEntity().getLocation()) && playerTrusted(event.getEntity(), event.getEntity().getLocation()))) {
+            if (!registerCommand || !lastAvailableLocation || !getBackFlag(event.getEntity(), event.getEntity().getLocation()) && playerTrusted(event.getEntity(), event.getEntity().getLocation())) {
                 lastLoc.put(event.getEntity().getUniqueId().toString(), event.getEntity().getLocation());
                 if (debug)
                     Bukkit.getLogger().info("[DenyBack] Death registered!");

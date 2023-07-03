@@ -11,10 +11,14 @@ commands:
   denyback:
     usage: /denyback
     description: used to reload the config
+  back:
+    usage: /back
+    description: built in back command
 permissions:
   denyback.admin:
     description: to be able to reload the config
     default: op
+    children: [denyback.back, denyback.back.ondeath]
   denyback.back:
     description: use /back if enabled
     default: false
