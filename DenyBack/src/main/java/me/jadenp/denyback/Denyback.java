@@ -23,6 +23,7 @@ import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -54,7 +55,7 @@ import static me.jadenp.denyback.ConfigOptions.*;
  */
 
 public final class Denyback extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
-    public static StateFlag MY_CUSTOM_FLAG;
+    public static StateFlag MY_CUSTOM_FLAG = null;
     public static List<String> aliases = new ArrayList<>();
     public File lastLocations = new File(this.getDataFolder() + File.separator + "locations.yml");
     public Map<String, Location> lastLoc = new HashMap<>();
@@ -75,6 +76,8 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             Flag<?> existing = registry.get("deny-back");
             if (existing instanceof StateFlag) {
                 MY_CUSTOM_FLAG = (StateFlag) existing;
+            } else {
+                Bukkit.getLogger().warning("Could not register deny-back flag! This usually means another plugin is conflicting.");
             }
         }
 
@@ -100,25 +103,47 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
         YamlConfiguration configuration = YamlConfiguration.loadConfiguration(lastLocations);
 
-        for (int i = 1; configuration.getString(i + ".uuid") != null; i++) {
-            String uuid = configuration.getString(i + ".uuid");
-            try {
+
+        if (configuration.isConfigurationSection("1")) {
+            // load old config
+            for (int i = 1; configuration.getString(i + ".uuid") != null; i++) {
+                String uuid = configuration.getString(i + ".uuid");
                 Location loc = configuration.getLocation(i + ".location");
                 lastLoc.put(uuid, loc);
-            } catch (IllegalArgumentException e) {
-                Bukkit.getLogger().warning("[DenyBack] Could not find the last location for " + uuid + "\n Did you rename or move the world?");
+            }
+        } else {
+            // load new config
+            for (String uuid : configuration.getKeys(false)) {
+                String worldUUID = configuration.getString(uuid + ".location.world");
+                double x = configuration.getDouble(uuid + ".location.x");
+                double y = configuration.getDouble(uuid + ".location.y");
+                double z = configuration.getDouble(uuid + ".location.z");
+                double pitch = configuration.getDouble(uuid + ".location.pitch");
+                double yaw = configuration.getDouble(uuid + ".location.yaw");
+
+                if (worldUUID == null) {
+                    Bukkit.getLogger().warning("[DenyBack] No world was present for last location of " + uuid);
+                    continue;
+                }
+                World world = Bukkit.getWorld(UUID.fromString(worldUUID));
+                if (world == null) {
+                    Bukkit.getLogger().warning("[DenyBack] Invalid world for last location of " + uuid);
+                    continue;
+                }
+                Location location = new Location(world, x, y, z, (float) pitch, (float) yaw);
+                lastLoc.put(uuid, location);
             }
         }
+
 
         ConfigOptions.loadConfig();
 
         if (registerCommand)
-            Objects.requireNonNull(getCommand("back")).setExecutor(this);
+            Objects.requireNonNull(getCommand("dback")).setExecutor(this);
 
         new BukkitRunnable() {
             public void run() {
                 save();
-
             }
         }.runTaskTimer(this, 36000L, 36000L);
     }
@@ -133,12 +158,20 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
     public void save() {
         YamlConfiguration configuration = new YamlConfiguration();
-        int i = 1;
 
         for (Map.Entry<String, Location> entry : lastLoc.entrySet()) {
-            configuration.set(i + ".uuid", entry.getKey());
-            configuration.set(i + ".location", entry.getValue());
-            i++;
+            String uuid = entry.getKey();
+            Location location = entry.getValue();
+            // can't save a null world or location
+            if (location == null || location.getWorld() == null)
+                continue;
+
+            configuration.set(uuid + ".location.world", location.getWorld().getUID().toString());
+            configuration.set(uuid + ".location.x", location.getX());
+            configuration.set(uuid + ".location.y", location.getY());
+            configuration.set(uuid + ".location.z", location.getZ());
+            configuration.set(uuid + ".location.yaw", location.getYaw());
+            configuration.set(uuid + ".location.pitch", location.getPitch());
         }
 
         try {
@@ -286,6 +319,20 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             } else {
                 sender.sendMessage(prefix + ChatColor.GOLD + "Unknown Command!");
             }
+        } else if (command.getName().equalsIgnoreCase("dback")){
+            if (!sender.hasPermission("denyback.back")) {
+                sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
+                return true;
+            }
+            if (!registerCommand) {
+                sender.sendMessage(ChatColor.RED + "This command is not enabled!");
+                return true;
+            }
+            if (!lastLoc.containsKey(((Player) sender).getUniqueId().toString())){
+                sender.sendMessage(prefix + ChatColor.RED + "There is no place to return you to!");
+                return true;
+            }
+            sender.sendMessage(prefix + ChatColor.RED + "This command is not in the config!");
         }
 
         return true;
@@ -331,6 +378,11 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     }
 
     public boolean getBackFlag(Player p, Location location) {
+        if (MY_CUSTOM_FLAG == null){
+            if (debug)
+                Bukkit.getLogger().info("[DenyBack] deny-back flag has not been loaded! (a server restart is required)");
+            return false;
+        }
         RegionContainer container = WorldGuard.getInstance().getPlatform().getRegionContainer();
         RegionQuery query = container.createQuery();
         ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(location));

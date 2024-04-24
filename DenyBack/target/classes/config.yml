@@ -9,6 +9,7 @@ deny-commands:
   - '/cmi cback'
   - '/return'
   - '/ereturn'
+  - '/dback'
 
 # the permission that allows players to /back to their death location
 back-on-death-permission: 'essentials.back.ondeath' # cmi.command.back.ondeath for cmi
@@ -25,7 +26,7 @@ deny-message: '&c&lHey! &7Sorry, but you can''t return to there.'
 use-grief-prevention-message: true
 
 back-command:
-  # register a back command for DenyBack - The command will show up in tab complete when the server restarts
+  # register a back command for DenyBack
   register: false
   # send player back to the last location that they are allowed to go
   use-last-available-location: true
