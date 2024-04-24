@@ -9,8 +9,5 @@
         <module name="denyback" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="denyback" target="1.8" />
-    </bytecodeTargetLevel>
   </component>
 </project>

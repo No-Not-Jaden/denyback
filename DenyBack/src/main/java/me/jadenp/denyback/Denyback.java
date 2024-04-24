@@ -92,7 +92,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         this.saveDefaultConfig();
         try {
             if (lastLocations.createNewFile()) {
-                Bukkit.getLogger().info("Created locations file.");
+                Bukkit.getLogger().info("[DenyBack] Created locations file.");
             }
         } catch (IOException e) {
             throw new RuntimeException(e);
@@ -102,8 +102,12 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
         for (int i = 1; configuration.getString(i + ".uuid") != null; i++) {
             String uuid = configuration.getString(i + ".uuid");
-            Location loc = configuration.getLocation(i + ".location");
-            lastLoc.put(uuid, loc);
+            try {
+                Location loc = configuration.getLocation(i + ".location");
+                lastLoc.put(uuid, loc);
+            } catch (IllegalArgumentException e) {
+                Bukkit.getLogger().warning("[DenyBack] Could not find the last location for " + uuid + "\n Did you rename or move the world?");
+            }
         }
 
         ConfigOptions.loadConfig();
@@ -141,7 +145,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             configuration.save(lastLocations);
         } catch (IOException e) {
             Bukkit.getLogger().warning("Couldn't save last locations!");
-            e.printStackTrace();
+            Bukkit.getLogger().warning(e.toString());
         }
     }
 
