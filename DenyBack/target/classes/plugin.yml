@@ -1,5 +1,5 @@
 name: DenyBack
-version: 1.9
+version: 1.10
 main: me.jadenp.denyback.Denyback
 api-version: 1.13
 depend: [ WorldGuard ]

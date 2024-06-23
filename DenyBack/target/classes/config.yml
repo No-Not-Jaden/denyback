@@ -25,6 +25,9 @@ deny-message: '&c&lHey! &7Sorry, but you can''t return to there.'
 # this will use GriefPrevention's message when a player tries to return to a claim
 use-grief-prevention-message: true
 
+# How often the plugin saves while the server is running in minutes - 0 to disable
+auto-save-interval: 0
+
 back-command:
   # register a back command for DenyBack
   register: false

@@ -38,13 +38,12 @@ import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.event.player.PlayerTeleportEvent.TeleportCause;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import javax.annotation.Nonnull;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
-
-import static me.jadenp.denyback.ConfigOptions.*;
 
 /**
  * Back command
@@ -55,27 +54,33 @@ import static me.jadenp.denyback.ConfigOptions.*;
  */
 
 public final class Denyback extends JavaPlugin implements Listener, CommandExecutor, TabCompleter {
-    public static StateFlag MY_CUSTOM_FLAG = null;
-    public static List<String> aliases = new ArrayList<>();
-    public File lastLocations = new File(this.getDataFolder() + File.separator + "locations.yml");
-    public Map<String, Location> lastLoc = new HashMap<>();
-    private static Denyback instance;
-    public static boolean debug = false;
+    private static StateFlag denyBackFlag = null;
+    private final Map<String, Location> lastLoc = new HashMap<>();
+    private boolean debug = false;
 
-    public String prefix = ChatColor.GRAY + "[" + ChatColor.RED + "DenyBack" + ChatColor.GRAY + "] " + ChatColor.DARK_GRAY + "> ";
+    public boolean isDebug() {
+        return debug;
+    }
+
+    private BukkitTask saveTask = null;
+
+    private ConfigOptions configOptions;
+
+    public static final String PREFIX = ChatColor.GRAY + "[" + ChatColor.RED + "DenyBack" + ChatColor.GRAY + "] " + ChatColor.DARK_GRAY + "> ";
 
 
+    @Override
     public void onLoad() {
         FlagRegistry registry = WorldGuard.getInstance().getFlagRegistry();
 
         try {
             StateFlag flag = new StateFlag("deny-back", false);
             registry.register(flag);
-            MY_CUSTOM_FLAG = flag;
+            denyBackFlag = flag;
         } catch (FlagConflictException var4) {
             Flag<?> existing = registry.get("deny-back");
             if (existing instanceof StateFlag) {
-                MY_CUSTOM_FLAG = (StateFlag) existing;
+                denyBackFlag = (StateFlag) existing;
             } else {
                 Bukkit.getLogger().warning("Could not register deny-back flag! This usually means another plugin is conflicting.");
             }
@@ -83,22 +88,21 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
 
     }
 
-    public static Denyback getInstance() {
-        return instance;
-    }
-
+    @Override
     public void onEnable() {
-        instance = this;
+        configOptions = new ConfigOptions();
+        File lastLocations = new File(this.getDataFolder() + File.separator + "locations.yml");
         getServer().getPluginManager().registerEvents(this, this);
         Objects.requireNonNull(this.getCommand("denyback")).setExecutor(this);
-        griefPreventionEnabled = Bukkit.getServer().getPluginManager().getPlugin("GriefPrevention") != null;
+
         this.saveDefaultConfig();
         try {
             if (lastLocations.createNewFile()) {
                 Bukkit.getLogger().info("[DenyBack] Created locations file.");
             }
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            Bukkit.getLogger().warning("[DenyBack] Could not create locations file!");
+            Bukkit.getLogger().warning(e.toString());
         }
 
         YamlConfiguration configuration = YamlConfiguration.loadConfiguration(lastLocations);
@@ -115,48 +119,77 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             // load new config
             for (String uuid : configuration.getKeys(false)) {
                 String worldUUID = configuration.getString(uuid + ".location.world");
-                double x = configuration.getDouble(uuid + ".location.x");
-                double y = configuration.getDouble(uuid + ".location.y");
-                double z = configuration.getDouble(uuid + ".location.z");
-                double pitch = configuration.getDouble(uuid + ".location.pitch");
-                double yaw = configuration.getDouble(uuid + ".location.yaw");
+                if (worldUUID != null) {
+                    World world = Bukkit.getWorld(UUID.fromString(worldUUID));
+                    if (world == null) {
+                        Bukkit.getLogger().warning(() -> "[DenyBack] Invalid world for last location of " + uuid);
+                        continue;
+                    }
 
-                if (worldUUID == null) {
-                    Bukkit.getLogger().warning("[DenyBack] No world was present for last location of " + uuid);
-                    continue;
+                    double x = configuration.getDouble(uuid + ".location.x");
+                    double y = configuration.getDouble(uuid + ".location.y");
+                    double z = configuration.getDouble(uuid + ".location.z");
+                    double pitch = configuration.getDouble(uuid + ".location.pitch");
+                    double yaw = configuration.getDouble(uuid + ".location.yaw");
+
+                    Location location = new Location(world, x, y, z, (float) pitch, (float) yaw);
+                    lastLoc.put(uuid, location);
+                } else {
+                    Bukkit.getLogger().warning(() -> "[DenyBack] No world was present for last location of " + uuid);
                 }
-                World world = Bukkit.getWorld(UUID.fromString(worldUUID));
-                if (world == null) {
-                    Bukkit.getLogger().warning("[DenyBack] Invalid world for last location of " + uuid);
-                    continue;
-                }
-                Location location = new Location(world, x, y, z, (float) pitch, (float) yaw);
-                lastLoc.put(uuid, location);
             }
         }
 
 
-        ConfigOptions.loadConfig();
+        configOptions.loadConfig(this);
 
-        if (registerCommand)
+        if (configOptions.isRegisterCommand())
             Objects.requireNonNull(getCommand("dback")).setExecutor(this);
 
-        new BukkitRunnable() {
-            public void run() {
-                save();
-            }
-        }.runTaskTimer(this, 36000L, 36000L);
     }
 
 
+    /**
+     * Load or reload the auto save task
+     * @param interval The interval between saves in minutes
+     */
+    public void loadSaveTask(int interval) {
+        if (saveTask != null)
+            saveTask.cancel();
+        if (interval > 0) {
+            long ticks = interval * 60L * 20L;
+            Denyback denyback = this;
+            saveTask = new BukkitRunnable() {
+                public void run() {
+                    save(denyback);
+                }
+            }.runTaskTimerAsynchronously(denyback, ticks, ticks);
+        } else {
+            saveTask = null;
+        }
+    }
 
 
-
+    @Override
     public void onDisable() {
-        save();
+        save(this);
     }
 
-    public void save() {
+    public void save(Denyback denyback) {
+        long start = System.currentTimeMillis();
+        if (denyback.isEnabled()) {
+            if (debug)
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        Bukkit.getLogger().info("[DenyBack] Saving...");
+                    }
+                }.runTask(denyback);
+        } else {
+            // this won't be run async if the plugin is disabled
+            Bukkit.getLogger().info("[DenyBack] Saving...");
+        }
+
         YamlConfiguration configuration = new YamlConfiguration();
 
         for (Map.Entry<String, Location> entry : lastLoc.entrySet()) {
@@ -175,10 +208,34 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         }
 
         try {
+            File lastLocations = new File(denyback.getDataFolder() + File.separator + "locations.yml");
             configuration.save(lastLocations);
+            if (denyback.isEnabled()) {
+                if (debug)
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            Bukkit.getLogger().info("[DenyBack] Saved! Took " + (System.currentTimeMillis() - start) + "ms.");
+                        }
+                    }.runTask(denyback);
+            } else {
+                Bukkit.getLogger().info(() -> "[DenyBack] Saved! Took " + (System.currentTimeMillis() - start) + "ms.");
+            }
         } catch (IOException e) {
-            Bukkit.getLogger().warning("Couldn't save last locations!");
-            Bukkit.getLogger().warning(e.toString());
+            if (denyback.isEnabled()) {
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        Bukkit.getLogger().warning("[DenyBack] Couldn't save last locations!");
+                        Bukkit.getLogger().warning(e.toString());
+                    }
+                }.runTask(denyback);
+            } else {
+                // this won't be run async if the plugin is disabled
+                Bukkit.getLogger().warning("[DenyBack] Couldn't save last locations!");
+                Bukkit.getLogger().warning(e.toString());
+            }
+
         }
     }
 
@@ -190,7 +247,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
             message = message.substring(0, message.length() - 1);
         }
 
-        if (aliases.contains(message.toLowerCase(Locale.ROOT))) {
+        if (configOptions.getAliases().contains(message.toLowerCase(Locale.ROOT))) {
             Player p = event.getPlayer();
             // back command
             if (!event.getPlayer().hasPermission("denyback.admin")) {
@@ -198,14 +255,14 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                     Location testLocation = lastLoc.get(p.getUniqueId().toString());
                     if (getBackFlag(p, testLocation)) {
                         event.setCancelled(true);
-                        p.sendMessage(denyMessage);
+                        p.sendMessage(configOptions.getDenyMessage());
                         return;
                     }
 
-                    if (griefPreventionEnabled && denyBackClaims) {
+                    if (configOptions.isGriefPreventionEnabled() && configOptions.isDenyBackClaims()) {
                         if (!playerTrusted(p, testLocation)) {
-                            if (!useGriefPreventionMessage)
-                                p.sendMessage(denyMessage);
+                            if (!configOptions.isUseGriefPreventionMessage())
+                                p.sendMessage(configOptions.getDenyMessage());
                             event.setCancelled(true);
                             return;
                         }
@@ -215,16 +272,16 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                 if (debug)
                     Bukkit.getLogger().info("[DenyBack] " + event.getPlayer().getName() + " has admin permissions.");
             }
-            if (registerCommand && lastLoc.containsKey(p.getUniqueId().toString()) && p.hasPermission("denyback.back")) {
-                p.sendMessage(backMessage);
+            if (configOptions.isRegisterCommand() && lastLoc.containsKey(p.getUniqueId().toString()) && p.hasPermission("denyback.back")) {
+                p.sendMessage(configOptions.getBackMessage());
                 event.setCancelled(true);
-                if (teleportDelay > 0) {
+                if (configOptions.getTeleportDelay() > 0) {
                     if (debug)
                         Bukkit.getLogger().info("[DenyBack] Initializing delayed teleport...");
                     new BukkitRunnable() {
-                        final int movingChars = 3;
+                        static final int MOVING_CHARS = 3;
                         StringBuilder displayMessage;
-                        int timer = teleportDelay;
+                        int timer = configOptions.getTeleportDelay();
                         final Location teleportLocation = lastLoc.get(p.getUniqueId().toString());
                         final Location startLocation = p.getLocation();
 
@@ -240,12 +297,12 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                             }
                             if (timer > 0) {
                                 displayMessage = new StringBuilder(ChatColor.DARK_PURPLE + "");
-                                for (int i = 0; i < ((double) timer / teleportDelay) * movingChars; i++)
+                                for (int i = 0; i < ((double) timer / configOptions.getTeleportDelay()) * MOVING_CHARS; i++)
                                     displayMessage.append("《");
 
                                 displayMessage.append(" ").append(ChatColor.LIGHT_PURPLE).append(ChatColor.BOLD).append(timer).append(" ").append(ChatColor.DARK_PURPLE);
 
-                                for (int i = 0; i < ((double) timer / teleportDelay) * movingChars; i++)
+                                for (int i = 0; i < ((double) timer / configOptions.getTeleportDelay()) * MOVING_CHARS; i++)
                                     displayMessage.append("》");
 
                                 p.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(displayMessage.toString()));
@@ -267,9 +324,9 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                 }
             } else {
                 if (debug) {
-                    Bukkit.getLogger().info("[DenyBack] Command registered: " + registerCommand);
-                    Bukkit.getLogger().info("[DenyBack] Has back location: " + lastLoc.containsKey(p.getUniqueId().toString()));
-                    Bukkit.getLogger().info("[DenyBack] Has denyback.back permission: " + p.hasPermission("denyback.back"));
+                    Bukkit.getLogger().info("[DenyBack] Command registered: " + configOptions.isRegisterCommand());
+                    Bukkit.getLogger().info(() -> "[DenyBack] Has back location: " + lastLoc.containsKey(p.getUniqueId().toString()));
+                    Bukkit.getLogger().info(() -> "[DenyBack] Has denyback.back permission: " + p.hasPermission("denyback.back"));
                 }
             }
 
@@ -300,6 +357,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         return list;
     }
 
+    @Override
     public boolean onCommand(@Nonnull CommandSender sender, Command command, @Nonnull String label, @Nonnull String[] args) {
         if (command.getName().equalsIgnoreCase("denyback")) {
             if (!sender.hasPermission("denyback.admin")) {
@@ -307,32 +365,32 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                 return true;
             }
             if (args.length != 1) {
-                sender.sendMessage(prefix + ChatColor.GOLD + "Unknown Command!");
+                sender.sendMessage(PREFIX + ChatColor.GOLD + "Unknown Command!");
                 return true;
             }
             if (args[0].equalsIgnoreCase("reload")) {
-                ConfigOptions.loadConfig();
-                sender.sendMessage(prefix + ChatColor.GREEN + "Reloaded DenyBack " + this.getDescription().getVersion() + ".");
+                configOptions.loadConfig(this);
+                sender.sendMessage(PREFIX + ChatColor.GREEN + "Reloaded DenyBack " + this.getDescription().getVersion() + ".");
             } else if (args[0].equalsIgnoreCase("debug")) {
                 debug = !debug;
-                sender.sendMessage(prefix + ChatColor.YELLOW + "Debug mode set to " + debug + ".");
+                sender.sendMessage(PREFIX + ChatColor.YELLOW + "Debug mode set to " + debug + ".");
             } else {
-                sender.sendMessage(prefix + ChatColor.GOLD + "Unknown Command!");
+                sender.sendMessage(PREFIX + ChatColor.GOLD + "Unknown Command!");
             }
         } else if (command.getName().equalsIgnoreCase("dback")){
             if (!sender.hasPermission("denyback.back")) {
                 sender.sendMessage(ChatColor.RED + "You do not have permission to use this command.");
                 return true;
             }
-            if (!registerCommand) {
+            if (!configOptions.isRegisterCommand()) {
                 sender.sendMessage(ChatColor.RED + "This command is not enabled!");
                 return true;
             }
             if (!lastLoc.containsKey(((Player) sender).getUniqueId().toString())){
-                sender.sendMessage(prefix + ChatColor.RED + "There is no place to return you to!");
+                sender.sendMessage(PREFIX + ChatColor.RED + "There is no place to return you to!");
                 return true;
             }
-            sender.sendMessage(prefix + ChatColor.RED + "This command is not in the config!");
+            sender.sendMessage(PREFIX + ChatColor.RED + "This command is not in the config!");
         }
 
         return true;
@@ -345,9 +403,9 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         if ((event.getCause() == TeleportCause.COMMAND || event.getCause() == TeleportCause.PLUGIN) && !event.isCancelled()) {
             int distance = event.getTo() != null && event.getTo().getWorld() != null && event.getFrom().getWorld() != null && event.getTo().getWorld().equals(event.getFrom().getWorld()) ? (int) event.getTo().distance(event.getFrom()) : 9999;
             if (debug)
-                Bukkit.getLogger().info("[DenyBack] Teleport Distance: " + distance + "m");
-            if (distance > minBackDistance) {
-                if (!registerCommand || !lastAvailableLocation || !getBackFlag(event.getPlayer(), event.getFrom()) && playerTrusted(event.getPlayer(), event.getFrom())) {
+                Bukkit.getLogger().info(() -> "[DenyBack] Teleport Distance: " + distance + "m");
+            if (distance > configOptions.getMinBackDistance()) {
+                if (!configOptions.isRegisterCommand() || configOptions.notLastAvailableLocation() || !getBackFlag(event.getPlayer(), event.getFrom()) && playerTrusted(event.getPlayer(), event.getFrom())) {
                     lastLoc.put(event.getPlayer().getUniqueId().toString(), event.getFrom());
                     if (debug)
                         Bukkit.getLogger().info("[DenyBack] Teleport registered!");
@@ -364,9 +422,9 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     @EventHandler
     public void onDeath(PlayerDeathEvent event) {
         if (debug)
-            Bukkit.getLogger().info("[DenyBack] Player died: " + event.getEntity().getName() + " Has death permission: " + (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()));
-        if (event.getEntity().hasPermission(deathPermission) || deathPermission.isEmpty()) {
-            if (!registerCommand || !lastAvailableLocation || !getBackFlag(event.getEntity(), event.getEntity().getLocation()) && playerTrusted(event.getEntity(), event.getEntity().getLocation())) {
+            Bukkit.getLogger().info("[DenyBack] Player died: " + event.getEntity().getName() + " Has death permission: " + (event.getEntity().hasPermission(configOptions.getDeathPermission()) || configOptions.getDeathPermission().isEmpty()));
+        if (event.getEntity().hasPermission(configOptions.getDeathPermission()) || configOptions.getDeathPermission().isEmpty()) {
+            if (!configOptions.isRegisterCommand() || configOptions.notLastAvailableLocation() || !getBackFlag(event.getEntity(), event.getEntity().getLocation()) && playerTrusted(event.getEntity(), event.getEntity().getLocation())) {
                 lastLoc.put(event.getEntity().getUniqueId().toString(), event.getEntity().getLocation());
                 if (debug)
                     Bukkit.getLogger().info("[DenyBack] Death registered!");
@@ -378,7 +436,7 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     }
 
     public boolean getBackFlag(Player p, Location location) {
-        if (MY_CUSTOM_FLAG == null){
+        if (denyBackFlag == null){
             if (debug)
                 Bukkit.getLogger().info("[DenyBack] deny-back flag has not been loaded! (a server restart is required)");
             return false;
@@ -387,23 +445,25 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
         RegionQuery query = container.createQuery();
         ApplicableRegionSet set = query.getApplicableRegions(BukkitAdapter.adapt(location));
         LocalPlayer localPlayer = WorldGuardPlugin.inst().wrapPlayer(p);
-        assert location.getWorld() != null;
+        if (location.getWorld() == null) {
+            return false;
+        }
         if (debug)
-            Bukkit.getLogger().info("[DenyBack] Checking deny-back flag for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
+            Bukkit.getLogger().info(() -> "[DenyBack] Checking deny-back flag for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
 
         if (WorldGuard.getInstance().getPlatform().getSessionManager().hasBypass(localPlayer, BukkitAdapter.adapt(p.getWorld()))) {
             if (debug)
                 Bukkit.getLogger().info("[DenyBack] Player bypasses DenyBack flag.");
             return false;
         }
-        if (set.testState(localPlayer, MY_CUSTOM_FLAG)) {
+        if (set.testState(localPlayer, denyBackFlag)) {
             if (debug)
                 Bukkit.getLogger().info("[DenyBack] Player cannot return.");
             return true;
         }
-        if (denyNonMembers) {
+        if (configOptions.isDenyNonMembers()) {
             if (debug)
-                Bukkit.getLogger().info("[DenyBack] Member status: " + set.isMemberOfAll(localPlayer) + ".");
+                Bukkit.getLogger().info(() -> "[DenyBack] Member status: " + set.isMemberOfAll(localPlayer) + ".");
             return !set.isMemberOfAll(localPlayer);
         }
         if (debug)
@@ -412,10 +472,11 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
     }
 
     public boolean playerTrusted(Player p, Location location) {
-        assert location.getWorld() != null;
+        if (location.getWorld() == null)
+            return true;
         if (debug)
-            Bukkit.getLogger().info("[DenyBack] Checking GriefPrevention Claim for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
-        if (!denyBackClaims){
+            Bukkit.getLogger().info(() -> "[DenyBack] Checking GriefPrevention Claim for " + p.getName() + " at " + Math.round(location.getX()) + " " + Math.round(location.getY()) + " " + Math.round(location.getZ()) + " " + location.getWorld().getName());
+        if (!configOptions.isDenyBackClaims()){
             if (debug)
                 Bukkit.getLogger().info("[DenyBack] deny-untrusted-claims is set to false, ignoring check");
             return true;
@@ -432,12 +493,10 @@ public final class Denyback extends JavaPlugin implements Listener, CommandExecu
                 Bukkit.getLogger().info("[DenyBack] Player is trusted.");
             return true;
         }
-        if (useGriefPreventionMessage)
+        if (configOptions.isUseGriefPreventionMessage())
             p.sendMessage(ChatColor.RED + perms);
         if (debug)
             Bukkit.getLogger().info("[DenyBack] Player is not trusted.");
         return false;
-
-
     }
 }
